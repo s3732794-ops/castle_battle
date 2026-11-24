@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Castle Crush Online PvP</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-light: #334155;
+    --text: #f8fafc;
+    --gold: #fbbf24;
+    --mana: #38bdf8;
+    --rarity-common: #f8fafc;
+    --rarity-rare: #facc15;
+    --rarity-epic: #a855f7;
+    --rarity-legendary: #ef4444;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--panel);
+    padding: 10px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #334155;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .title { font-size: 20px; font-weight: 800; color: var(--mana); display: flex; align-items: center; gap: 10px; }
+  .online-badge { font-size: 11px; background: #16a34a; color: #fff; padding: 2px 8px; border-radius: 12px; }
+  .online-badge.offline { background: #dc2626; }
+  .nav-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  input.nick-input {
+    background: #0f172a;
+    border: 1px solid #475569;
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    width: 130px;
+    font-weight: 700;
+  }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    color: white;
+    background: #0284c7;
+    padding: 8px 14px;
+    font-size: 13px;
+    transition: 0.15s;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:active { transform: scale(0.96); }
+  button.green { background: #16a34a; }
+  button.orange { background: #d97706; }
+  button.gray { background: #475569; }
+  button.red { background: #dc2626; }
+
+  .screen { display: none; padding: 15px 20px; max-width: 1280px; width: 100%; margin: 0 auto; flex: 1; }
+  .screen.active { display: block; }
+
+  /* DECK & COLLECTION */
+  .deck-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .card-item {
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 10px;
+    border: 2px solid #475569;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+  }
+  .card-item.in-deck { box-shadow: 0 0 12px rgba(56, 189, 248, 0.35); background: #263349; }
+  .rarity-Common { border-color: var(--rarity-common); }
+  .rarity-Rare { border-color: var(--rarity-rare); }
+  .rarity-Epic { border-color: var(--rarity-epic); }
+  .rarity-Legendary { border-color: var(--rarity-legendary); }
+
+  .card-top { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 800; }
+  .card-mana { background: #0284c7; color: #fff; padding: 2px 7px; border-radius: 10px; }
+  .card-lvl { color: var(--gold); }
+  
+  .card-art-wrap {
+    width: 68px;
+    height: 68px;
+    margin: 8px auto;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0f172a;
+    border: 1px solid #475569;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card-art-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .card-art-fallback { font-size: 34px; }
+
+  .card-name { font-size: 14px; font-weight: 800; text-align: center; margin-bottom: 4px; }
+  .card-stats { font-size: 11px; color: #cbd5e1; line-height: 1.35; margin-bottom: 8px; }
+  .card-actions { display: flex; gap: 5px; }
+  .card-actions button { flex: 1; padding: 5px; font-size: 11px; }
+
+  /* MATCHMAKING OVERLAY */
+  #search-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.88);
+    z-index: 100;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+    padding: 20px;
+  }
+  #search-overlay.active { display: flex; }
+  .spinner {
+    width: 52px; height: 52px;
+    border: 5px solid #334155;
+    border-top-color: #38bdf8;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* BATTLE */
+  .battle-hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--panel);
+    padding: 10px 18px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #334155;
+    font-weight: 800;
+    font-size: 15px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .hp-player { color: #38bdf8; }
+  .hp-enemy { color: #f87171; }
+
+  .canvas-wrapper { width: 100%; background: #111827; border-radius: 12px; overflow: hidden; border: 2px solid #334155; position: relative; }
+  canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+
+  .battle-controls { margin-top: 10px; background: var(--panel); padding: 12px; border-radius: 12px; border: 1px solid #334155; }
+  .mana-bar-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .mana-text { font-size: 16px; font-weight: 800; color: var(--mana); min-width: 145px; }
+  .mana-progress { flex: 1; height: 14px; background: #0f172a; border-radius: 7px; overflow: hidden; border: 1px solid #334155; }
+  .mana-fill { height: 100%; background: linear-gradient(90deg, #0284c7, #38bdf8); width: 0%; transition: width 0.05s linear; }
+
+  .hand-cards { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .hand-card {
+    width: 130px;
+    background: var(--panel-light);
+    border-radius: 10px;
+    padding: 8px;
+    text-align: center;
+    cursor: pointer;
+    border: 3px solid #64748b;
+    transition: transform 0.1s;
+    position: relative;
+  }
+  .hand-card.rarity-Common { border-color: var(--rarity-common); }
+  .hand-card.rarity-Rare { border-color: var(--rarity-rare); }
+  .hand-card.rarity-Epic { border-color: var(--rarity-epic); }
+  .hand-card.selected { transform: translateY(-8px); box-shadow: 0 0 18px rgba(56, 189, 248, 0.8); }
+  .hand-card.disabled { opacity: 0.45; cursor: not-allowed; }
+  .hand-card-cost { font-size: 13px; font-weight: 800; color: var(--mana); }
+  .hand-card-art {
+    width: 54px;
+    height: 54px;
+    margin: 4px auto;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #0f172a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hand-card-art img { width: 100%; height: 100%; object-fit: cover; }
+  .hand-card-name { font-size: 12px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hand-card-lvl { font-size: 10px; color: var(--gold); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title">
+    🏰 Castle Crush PvP
+    <span id="conn-badge" class="online-badge offline">Подключение...</span>
+  </div>
+  <div class="nav-btns">
+    <input type="text" id="player-nick" class="nick-input" placeholder="Твой ник" maxlength="16" onchange="saveNick()">
+    <span style="color: var(--gold); font-weight: 700;">Замок Ур. <span id="castle-lvl-display">1</span></span>
+    <button class="gray" onclick="upgradeCastle()">⬆️ Замок</button>
+    <button class="gray" onclick="switchScreen('deck-screen')">Колода (<span id="deck-count-hdr">14</span>/14)</button>
+    <button class="green" onclick="findOnlineMatch()">🌐 ОНЛАЙН БОЙ</button>
+    <button class="orange" onclick="startBotBattle()">🤖 С ботом (1 ур.)</button>
+    <button class="red" onclick="resetProgress()">Сброс</button>
+  </div>
+</header>
+
+<!-- ОКНО ПОИСКА ПРОТИВНИКА -->
+<div id="search-overlay">
+  <div class="spinner"></div>
+  <h2>Поиск онлайн-противника...</h2>
+  <p style="color:#94a3b8; max-width:420px;">Открой ссылку на игру во второй вкладке браузера или отправь другу, чтобы сразу начать дуэль!</p>
+  <button class="red" onclick="cancelSearch()">Отмена</button>
+</div>
+
+<!-- ЭКРАН КОЛОДЫ -->
+<div class="screen active" id="deck-screen">
+  <div class="deck-header">
+    <h2>Активная колода (<span id="deck-count">14</span> / 14 карт)</h2>
+    <div style="font-size: 13px; color: #94a3b8;">Иконки и прогресс загружаются автоматически</div>
+  </div>
+  <div class="cards-grid" id="deck-grid"></div>
+
+  <div class="deck-header">
+    <h2>Все доступные карты (21 карта)</h2>
+  </div>
+  <div class="cards-grid" id="collection-grid"></div>
+</div>
+
+<!-- ЭКРАН БОЯ -->
+<div class="screen" id="battle-screen">
+  <div class="battle-hud">
+    <div class="hp-player">🔵 <span id="b-p-name">Вы</span> (Ур.<span id="b-p-lvl">1</span>): <span id="b-p-hp">2000</span> / <span id="b-p-maxhp">2000</span> HP</div>
+    <div id="battle-status" style="color: var(--gold);">Выберите карту и кликните по линии!</div>
+    <div class="hp-enemy">🔴 <span id="b-e-name">Враг</span> (Ур.<span id="b-e-lvl">1</span>): <span id="b-e-hp">2000</span> / <span id="b-e-maxhp">2000</span> HP</div>
+  </div>
+
+  <div class="canvas-wrapper">
+    <canvas id="gameCanvas" width="1200" height="450"></canvas>
+  </div>
+
+  <div class="battle-controls">
+    <div class="mana-bar-wrap">
+      <div class="mana-text">💧 Мана: <span id="b-mana">4.0</span> / 10</div>
+      <div class="mana-progress">
+        <div class="mana-fill" id="b-mana-fill"></div>
+      </div>
+      <button class="gray" onclick="leaveBattle()">Сдаться / В меню</button>
+    </div>
+    <div class="hand-cards" id="battle-hand"></div>
+  </div>
+</div>
+
+<script>
+// ================= SOCKET.IO ПОДКЛЮЧЕНИЕ К RENDER =================
+const socket = io();
+socket.on('connect', () => {
+  const b = document.getElementById('conn-badge');
+  b.textContent = 'Онлайн';
+  b.classList.remove('offline');
+});
+socket.on('disconnect', () => {
+  const b = document.getElementById('conn-badge');
+  b.textContent = 'Офлайн';
+  b.classList.add('offline');
+});
+
+// ================= ВСТРОЕННЫЕ ДАННЫЕ PLIST =================
+const EMBEDDED_MUD_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>frames</key><dict>
+<key>attack/mudelementalattack_00000.png</key><dict><key>spriteOffset</key><string>{27,-68}</string><key>spriteSize</key><string>{146,132}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1780,626},{146,132}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00001.png</key><dict><key>spriteOffset</key><string>{6,-58}</string><key>spriteSize</key><string>{164,152}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{304,934},{164,152}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00002.png</key><dict><key>spriteOffset</key><string>{-15,-41}</string><key>spriteSize</key><string>{182,186}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1450,0},{182,186}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00003.png</key><dict><key>spriteOffset</key><string>{-47,-20}</string><key>spriteSize</key><string>{216,228}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{676,684},{216,228}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00004.png</key><dict><key>spriteOffset</key><string>{-48,-21}</string><key>spriteSize</key><string>{228,226}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{220,470},{228,226}}</string><key>textureRotated</key><true/></dict>
+<key>attack/mudelementalattack_00005.png</key><dict><key>spriteOffset</key><string>{-40,-25}</string><key>spriteSize</key><string>{238,218}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{228,0},{238,218}}</string><key>textureRotated</key><true/></dict>
+<key>attack/mudelementalattack_00006.png</key><dict><key>spriteOffset</key><string>{-23,-25}</string><key>spriteSize</key><string>{236,218}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{220,698},{236,218}}</string><key>textureRotated</key><true/></dict>
+<key>attack/mudelementalattack_00007.png</key><dict><key>spriteOffset</key><string>{60,-35}</string><key>spriteSize</key><string>{190,204}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1244,892},{190,204}}</string><key>textureRotated</key><true/></dict>
+<key>attack/mudelementalattack_00008.png</key><dict><key>spriteOffset</key><string>{71,-58}</string><key>spriteSize</key><string>{206,168}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{674,914},{206,168}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00009.png</key><dict><key>spriteOffset</key><string>{71,-43}</string><key>spriteSize</key><string>{208,182}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1036,904},{208,182}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00010.png</key><dict><key>spriteOffset</key><string>{71,-35}</string><key>spriteSize</key><string>{208,198}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1308,660},{208,198}}</string><key>textureRotated</key><true/></dict>
+<key>attack/mudelementalattack_00011.png</key><dict><key>spriteOffset</key><string>{71,-13}</string><key>spriteSize</key><string>{208,242}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{446,234},{208,242}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00012.png</key><dict><key>spriteOffset</key><string>{71,-19}</string><key>spriteSize</key><string>{208,230}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{892,674},{208,230}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00013.png</key><dict><key>spriteOffset</key><string>{71,-22}</string><key>spriteSize</key><string>{208,224}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{918,460},{208,224}}</string><key>textureRotated</key><true/></dict>
+<key>attack/mudelementalattack_00014.png</key><dict><key>spriteOffset</key><string>{71,-24}</string><key>spriteSize</key><string>{208,220}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1074,222},{208,220}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00015.png</key><dict><key>spriteOffset</key><string>{71,-19}</string><key>spriteSize</key><string>{208,230}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{662,0},{208,230}}</string><key>textureRotated</key><false/></dict>
+<key>attack/mudelementalattack_00016.png</key><dict><key>spriteOffset</key><string>{70,-19}</string><key>spriteSize</key><string>{210,230}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{688,464},{210,230}}</string><key>textureRotated</key><true/></dict>
+<key>attack/mudelementalattack_00017.png</key><dict><key>spriteOffset</key><string>{67,-15}</string><key>spriteSize</key><string>{216,238}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{438,698},{216,238}}</string><key>textureRotated</key><true/></dict>
+<key>attack/mudelementalattack_00018.png</key><dict><key>spriteOffset</key><string>{65,-15}</string><key>spriteSize</key><string>{220,240}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{0,238},{220,240}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00000.png</key><dict><key>spriteOffset</key><string>{18,-65}</string><key>spriteSize</key><string>{126,140}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1910,444},{126,140}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00001.png</key><dict><key>spriteOffset</key><string>{18,-65}</string><key>spriteSize</key><string>{132,140}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1886,154},{132,140}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00002.png</key><dict><key>spriteOffset</key><string>{17,-65}</string><key>spriteSize</key><string>{138,140}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1642,626},{138,140}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00003.png</key><dict><key>spriteOffset</key><string>{13,-65}</string><key>spriteSize</key><string>{140,140}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1746,158},{140,140}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00004.png</key><dict><key>spriteOffset</key><string>{13,-67}</string><key>spriteSize</key><string>{146,138}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1496,492},{146,138}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00005.png</key><dict><key>spriteOffset</key><string>{12,-73}</string><key>spriteSize</key><string>{154,126}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1764,0},{154,126}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00006.png</key><dict><key>spriteOffset</key><string>{10,-72}</string><key>spriteSize</key><string>{154,128}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1642,344},{154,128}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00007.png</key><dict><key>spriteOffset</key><string>{6,-71}</string><key>spriteSize</key><string>{152,130}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{0,958},{152,130}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00008.png</key><dict><key>spriteOffset</key><string>{4,-71}</string><key>spriteSize</key><string>{148,128}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1782,472},{148,128}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00009.png</key><dict><key>spriteOffset</key><string>{11,-70}</string><key>spriteSize</key><string>{128,130}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1770,884},{128,130}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00010.png</key><dict><key>spriteOffset</key><string>{9,-68}</string><key>spriteSize</key><string>{124,130}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1646,902},{124,130}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00011.png</key><dict><key>spriteOffset</key><string>{4,-65}</string><key>spriteSize</key><string>{124,136}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1646,766},{124,136}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00012.png</key><dict><key>spriteOffset</key><string>{0,-61}</string><key>spriteSize</key><string>{128,140}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1890,0},{128,140}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00013.png</key><dict><key>spriteOffset</key><string>{0,-60}</string><key>spriteSize</key><string>{136,146}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1506,638},{136,146}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00014.png</key><dict><key>spriteOffset</key><string>{4,-58}</string><key>spriteSize</key><string>{146,148}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1496,344},{146,148}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00015.png</key><dict><key>spriteOffset</key><string>{8,-61}</string><key>spriteSize</key><string>{152,146}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1350,400},{152,146}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00016.png</key><dict><key>spriteOffset</key><string>{10,-66}</string><key>spriteSize</key><string>{158,140}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1472,186},{158,140}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00017.png</key><dict><key>spriteOffset</key><string>{8,-70}</string><key>spriteSize</key><string>{158,134}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1612,186},{158,134}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00018.png</key><dict><key>spriteOffset</key><string>{5,-71}</string><key>spriteSize</key><string>{158,132}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1632,0},{158,132}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00019.png</key><dict><key>spriteOffset</key><string>{6,-72}</string><key>spriteSize</key><string>{152,130}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{152,958},{152,130}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00020.png</key><dict><key>spriteOffset</key><string>{5,-72}</string><key>spriteSize</key><string>{146,128}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1796,298},{146,128}}</string><key>textureRotated</key><true/></dict>
+<key>walk/mudelementalwalk_00021.png</key><dict><key>spriteOffset</key><string>{5,-73}</string><key>spriteSize</key><string>{136,126}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1780,758},{136,126}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00022.png</key><dict><key>spriteOffset</key><string>{8,-72}</string><key>spriteSize</key><string>{128,126}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1900,890},{128,126}}</string><key>textureRotated</key><false/></dict>
+<key>walk/mudelementalwalk_00023.png</key><dict><key>spriteOffset</key><string>{16,-69}</string><key>spriteSize</key><string>{120,132}</string><key>spriteSourceSize</key><string>{350,400}</string><key>textureRect</key><string>{{1916,758},{120,132}}</string><key>textureRotated</key><false/></dict>
+</dict></dict></plist>`;
+
+const EMBEDDED_VAMPIRE_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>frames</key><dict>
+<key>attack/attack_00000.png</key><dict><key>spriteOffset</key><string>{28.5,-70}</string><key>spriteSize</key><string>{169,202}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{498,900},{169,202}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00001.png</key><dict><key>spriteOffset</key><string>{16,-71.5}</string><key>spriteSize</key><string>{174,199}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{817,828},{174,199}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00002.png</key><dict><key>spriteOffset</key><string>{6.5,-72}</string><key>spriteSize</key><string>{159,202}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1209,552},{159,202}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00003.png</key><dict><key>spriteOffset</key><string>{-6,-69.5}</string><key>spriteSize</key><string>{146,209}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1308,0},{146,209}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00004.png</key><dict><key>spriteOffset</key><string>{-3.5,-52.5}</string><key>spriteSize</key><string>{175,239}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1107,693},{175,239}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00005.png</key><dict><key>spriteOffset</key><string>{-0.5,-51.5}</string><key>spriteSize</key><string>{203,247}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1040,521},{203,247}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00006.png</key><dict><key>spriteOffset</key><string>{-23.5,-65.5}</string><key>spriteSize</key><string>{237,219}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{678,750},{237,219}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00007.png</key><dict><key>spriteOffset</key><string>{-27.5,-56}</string><key>spriteSize</key><string>{241,236}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{867,431},{241,236}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00008.png</key><dict><key>spriteOffset</key><string>{35,-62.5}</string><key>spriteSize</key><string>{256,223}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{701,460},{256,223}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00009.png</key><dict><key>spriteOffset</key><string>{33,-69.5}</string><key>spriteSize</key><string>{284,207}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{707,266},{284,207}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00010.png</key><dict><key>spriteOffset</key><string>{26.5,-75.5}</string><key>spriteSize</key><string>{285,187}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{809,612},{285,187}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00011.png</key><dict><key>spriteOffset</key><string>{-41,-81}</string><key>spriteSize</key><string>{144,180}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1586,621},{144,180}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00012.png</key><dict><key>spriteOffset</key><string>{-37,-85}</string><key>spriteSize</key><string>{148,180}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1589,270},{148,180}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00013.png</key><dict><key>spriteOffset</key><string>{-15.5,-80}</string><key>spriteSize</key><string>{133,184}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1622,40},{133,184}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00014.png</key><dict><key>spriteOffset</key><string>{8.5,-68}</string><key>spriteSize</key><string>{143,208}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1393,770},{143,208}}</string><key>textureRotated</key><false/></dict>
+<key>attack/attack_00015.png</key><dict><key>spriteOffset</key><string>{26,-70.5}</string><key>spriteSize</key><string>{172,199}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{0,861},{172,199}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00000.png</key><dict><key>spriteOffset</key><string>{-10,-44}</string><key>spriteSize</key><string>{168,256}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{966,719},{168,256}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00001.png</key><dict><key>spriteOffset</key><string>{1,-49}</string><key>spriteSize</key><string>{188,252}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1081,290},{188,252}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00002.png</key><dict><key>spriteOffset</key><string>{-7,-27.5}</string><key>spriteSize</key><string>{210,295}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{0,577},{210,295}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00003.png</key><dict><key>spriteOffset</key><string>{-17,-24}</string><key>spriteSize</key><string>{198,298}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{150,629},{198,298}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00004.png</key><dict><key>spriteOffset</key><string>{-2.5,-36.5}</string><key>spriteSize</key><string>{221,273}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{310,713},{221,273}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00005.png</key><dict><key>spriteOffset</key><string>{8.5,-43.5}</string><key>spriteSize</key><string>{239,259}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{348,460},{239,259}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00006.png</key><dict><key>spriteOffset</key><string>{-19.5,-29.5}</string><key>spriteSize</key><string>{199,291}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{506,519},{199,291}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00007.png</key><dict><key>spriteOffset</key><string>{-19.5,-29}</string><key>spriteSize</key><string>{215,292}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{654,0},{215,292}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00008.png</key><dict><key>spriteOffset</key><string>{-20,-30}</string><key>spriteSize</key><string>{218,290}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{438,0},{218,290}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00009.png</key><dict><key>spriteOffset</key><string>{-26.5,-28}</string><key>spriteSize</key><string>{193,290}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1046,0},{193,290}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00010.png</key><dict><key>spriteOffset</key><string>{-40.5,-24}</string><key>spriteSize</key><string>{199,296}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{847,0},{199,296}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00011.png</key><dict><key>spriteOffset</key><string>{-43.5,-27}</string><key>spriteSize</key><string>{219,288}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{0,289},{219,288}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00012.png</key><dict><key>spriteOffset</key><string>{-50,-28.5}</string><key>spriteSize</key><string>{220,289}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{222,0},{220,289}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00013.png</key><dict><key>spriteOffset</key><string>{-47.5,-29.5}</string><key>spriteSize</key><string>{227,289}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{0,0},{227,289}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00014.png</key><dict><key>spriteOffset</key><string>{-44.5,-29.5}</string><key>spriteSize</key><string>{209,291}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{504,228},{209,291}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00015.png</key><dict><key>spriteOffset</key><string>{-47.5,-50.5}</string><key>spriteSize</key><string>{255,245}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{258,249},{255,245}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00016.png</key><dict><key>spriteOffset</key><string>{-4.5,-76}</string><key>spriteSize</key><string>{177,198}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{594,802},{177,198}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00017.png</key><dict><key>spriteOffset</key><string>{12.5,-71.5}</string><key>spriteSize</key><string>{155,203}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1219,149},{155,203}}</string><key>textureRotated</key><false/></dict>
+<key>deploy/deploy_00018.png</key><dict><key>spriteOffset</key><string>{19.5,-71.5}</string><key>spriteSize</key><string>{165,199}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{278,966},{165,199}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00000.png</key><dict><key>spriteOffset</key><string>{17.5,-68.5}</string><key>spriteSize</key><string>{151,199}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1432,0},{151,199}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00001.png</key><dict><key>spriteOffset</key><string>{14.5,-71.5}</string><key>spriteSize</key><string>{143,197}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1584,930},{143,197}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00002.png</key><dict><key>spriteOffset</key><string>{14.5,-71.5}</string><key>spriteSize</key><string>{143,199}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1542,432},{143,199}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00003.png</key><dict><key>spriteOffset</key><string>{19.5,-71}</string><key>spriteSize</key><string>{143,204}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1452,588},{143,204}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00004.png</key><dict><key>spriteOffset</key><string>{24.5,-68.5}</string><key>spriteSize</key><string>{153,201}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1324,955},{153,201}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00005.png</key><dict><key>spriteOffset</key><string>{19,-71}</string><key>spriteSize</key><string>{148,204}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1356,474},{148,204}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00006.png</key><dict><key>spriteOffset</key><string>{22.5,-71}</string><key>spriteSize</key><string>{153,204}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1253,351},{153,204}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00007.png</key><dict><key>spriteOffset</key><string>{18.5,-68}</string><key>spriteSize</key><string>{145,204}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1438,302},{145,204}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00008.png</key><dict><key>spriteOffset</key><string>{32,-69}</string><key>spriteSize</key><string>{168,196}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{701,945},{168,196}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00009.png</key><dict><key>spriteOffset</key><string>{22,-72}</string><key>spriteSize</key><string>{142,202}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1525,766},{142,202}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00010.png</key><dict><key>spriteOffset</key><string>{12,-72.5}</string><key>spriteSize</key><string>{154,201}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1294,671},{154,201}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00011.png</key><dict><key>spriteOffset</key><string>{27.5,-72}</string><key>spriteSize</key><string>{167,200}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{142,918},{167,200}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00012.png</key><dict><key>spriteOffset</key><string>{17,-71}</string><key>spriteSize</key><string>{148,198}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1509,136},{148,198}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00013.png</key><dict><key>spriteOffset</key><string>{13,-71.5}</string><key>spriteSize</key><string>{172,205}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{211,417},{172,205}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00014.png</key><dict><key>spriteOffset</key><string>{19,-71}</string><key>spriteSize</key><string>{166,198}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{907,952},{166,198}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00015.png</key><dict><key>spriteOffset</key><string>{19,-71}</string><key>spriteSize</key><string>{166,200}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1094,924},{166,200}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00016.png</key><dict><key>spriteOffset</key><string>{11,-72.5}</string><key>spriteSize</key><string>{150,203}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1351,201},{150,203}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00017.png</key><dict><key>spriteOffset</key><string>{20,-72}</string><key>spriteSize</key><string>{156,202}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1234,858},{156,202}}</string><key>textureRotated</key><false/></dict>
+<key>walk/walk_00018.png</key><dict><key>spriteOffset</key><string>{12,-71}</string><key>spriteSize</key><string>{148,198}</string><key>spriteSourceSize</key><string>{350,350}</string><key>textureRect</key><string>{{1453,943},{148,198}}</string><key>textureRotated</key><false/></dict>
+</dict></dict></plist>`;
+
+// ================= КЛАСС ПАРСЕРА И ОТРИСОВКИ PLIST =================
+class PlistAnimation {
+  constructor(plistText) {
+    this.image = null;
+    this.loaded = false;
+    this.frames = {};
+    this.walkFrames = [];
+    this.attackFrames = [];
+    this.deployFrames = [];
+    this.parse(plistText);
+  }
+  setImage(img) { this.image = img; this.loaded = true; }
+  parse(xmlText) {
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlText, 'text/xml');
+    let framesDict = null;
+    xml.querySelectorAll('key').forEach(key => {
+      if (key.textContent === 'frames') framesDict = key.nextElementSibling;
+    });
+    if (!framesDict) return;
+
+    framesDict.querySelectorAll(':scope > key').forEach(fKey => {
+      const name = fKey.textContent;
+      const dict = fKey.nextElementSibling;
+      let data = {}, curKey = '';
+      for (let i = 0; i < dict.children.length; i++) {
+        const el = dict.children[i];
+        if (el.tagName === 'key') curKey = el.textContent;
+        else if (el.tagName === 'true') data[curKey] = true;
+        else if (el.tagName === 'false') data[curKey] = false;
+        else data[curKey] = el.textContent;
+      }
+      const parseRect = str => {
+        if (!str) return { x: 0, y: 0, w: 0, h: 0 };
+        const n = str.replace(/[{}]/g, '').split(',').map(Number);
+        return { x: n[0], y: n[1], w: n[2], h: n[3] };
+      };
+      const parsePoint = str => {
+        if (!str) return { x: 0, y: 0 };
+        const n = str.replace(/[{}]/g, '').split(',').map(Number);
+        return { x: n[0], y: n[1] };
+      };
+      const frameInfo = {
+        rect: parseRect(data['textureRect'] || data['frame']),
+        offset: parsePoint(data['spriteOffset']),
+        sourceSize: parseRect(data['spriteSourceSize']),
+        rotated: Boolean(data['textureRotated'])
+      };
+      this.frames[name] = frameInfo;
+      if (name.startsWith('walk/')) this.walkFrames.push(name);
+      else if (name.startsWith('attack/')) this.attackFrames.push(name);
+      else if (name.startsWith('deploy/')) this.deployFrames.push(name);
+    });
+    this.walkFrames.sort();
+    this.attackFrames.sort();
+    this.deployFrames.sort();
+  }
+  draw(ctx, animType, frameIndex, x, y, scale = 0.42, flipX = false) {
+    if (!this.loaded || !this.image) return false;
+    let list = this.walkFrames;
+    if (animType === 'attack' && this.attackFrames.length > 0) list = this.attackFrames;
+    else if (animType === 'deploy' && this.deployFrames.length > 0) list = this.deployFrames;
+    if (list.length === 0) return false;
+
+    const frameName = list[frameIndex % list.length];
+    const f = this.frames[frameName];
+    if (!f) return false;
+
+    ctx.save();
+    ctx.translate(x, y);
+    if (flipX) ctx.scale(-1, 1);
+
+    const offsetX = f.offset.x * scale;
+    const offsetY = (-f.offset.y - f.sourceSize.h * 0.22) * scale;
+    ctx.translate(offsetX, offsetY);
+
+    if (f.rotated) {
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(this.image, f.rect.x, f.rect.y, f.rect.h, f.rect.w, (-f.rect.h / 2) * scale, (-f.rect.w / 2) * scale, f.rect.h * scale, f.rect.w * scale);
+    } else {
+      ctx.drawImage(this.image, f.rect.x, f.rect.y, f.rect.w, f.rect.h, (-f.rect.w / 2) * scale, (-f.rect.h / 2) * scale, f.rect.w * scale, f.rect.h * scale);
+    }
+    ctx.restore();
+    return true;
+  }
+}
+
+// ================= ЗАГРУЗКА КАРТИНОК ИЗ ПАПКИ PUBLIC =================
+const ASSETS = {
+  mudAnim: new PlistAnimation(EMBEDDED_MUD_PLIST),
+  spectreAnim: new PlistAnimation(EMBEDDED_VAMPIRE_PLIST),
+  scarecrow: null,
+  cannon: null
+};
+
+function loadImg(src, cb) {
+  const img = new Image();
+  img.onload = () => cb(img);
+  img.src = src;
+}
+loadImg('MudElemental.png', img => ASSETS.mudAnim.setImage(img));
+loadImg('Vampire.png', img => ASSETS.spectreAnim.setImage(img));
+loadImg('Scarecrow.png', img => { ASSETS.scarecrow = img; });
+loadImg('cannon_sprite.png', img => { ASSETS.cannon = img; });
+
+function getCardArtHtml(card, cssClass = 'card-art-wrap') {
+  return `<div class="${cssClass}"><img src="${card.iconFile}" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" alt="${card.name}"><span class="card-art-fallback" style="display:none">${card.emoji}</span></div>`;
+}
+
+// ================= БАЗА ДАННЫХ 21 КАРТЫ =================
+const LEVEL_MULTIPLIER = 1.1005;
+
+const CARDS_DB = [
+  { id: 'bomb', name: 'Bomb', iconFile: 'bomb.png', type: 'spell', spellType: 'area_dmg', rarity: 'Common', mana: 2, damage: 100, area: 2.8, emoji: '💣', desc: 'Маг. урон 100 по области 2.8 клетки' },
+  { id: 'warrior', name: 'Warrior', iconFile: 'war.png', type: 'unit', rarity: 'Common', mana: 3, hp: 294, damage: 107, speed: 1.45, range: 0.9, count: 1, emoji: '⚔️', desc: 'Быстрый боец ближнего боя' },
+  { id: 'archers', name: 'Archers', iconFile: 'arr.png', type: 'unit', rarity: 'Common', mana: 1, hp: 80, damage: 20, speed: 1.0, range: 4.5, count: 2, emoji: '🏹', desc: '2 лучницы дальнего боя (4.5 кл.)' },
+  { id: 'skeletons', name: 'Skeletons', iconFile: 'skelis.png', type: 'unit', rarity: 'Common', mana: 1, hp: 80, damage: 20, speed: 1.15, range: 0.9, count: 3, emoji: '💀', desc: 'Отряд из 3 скелетов' },
+  { id: 'stone', name: 'Stone Statue', iconFile: 'stone.png', type: 'unit', rarity: 'Rare', mana: 2, hp: 1000, damage: 0, speed: 0, range: 0, count: 1, canSpawnAnywhere: true, emoji: '🗿', desc: 'Ставится в любое место. Блокирует врагов' },
+  { id: 'dwarf', name: 'Dwarf', iconFile: 'dwarf.png', type: 'unit', rarity: 'Common', mana: 2, hp: 450, damage: 20, speed: 1.15, range: 0.9, count: 1, emoji: '🪓', desc: 'Крепкий воин ближнего боя' },
+  { id: 'golem', name: 'Golem', iconFile: 'golem.png', type: 'unit', rarity: 'Common', mana: 2, hp: 450, damage: 20, speed: 1.15, range: 0.9, count: 1, emoji: '🪨', desc: 'Каменный боец ближнего боя' },
+  { id: 'heal', name: 'Heal', iconFile: 'heal.png', type: 'spell', spellType: 'heal', rarity: 'Common', mana: 3, healPct: 0.63, emoji: '💚', desc: 'Восстанавливает 63% макс. HP союзникам на линии' },
+  { id: 'growth', name: 'Growth', iconFile: 'growth.png', type: 'spell', spellType: 'growth', rarity: 'Common', mana: 7, bonusPct: 0.65, scaleInc: 1.12, noLevelScale: true, emoji: '🌿', desc: '+65% HP и урона сильнейшему юниту на линии, делает его БОЛЬШИМ' },
+  { id: 'meteor', name: 'Meteor', iconFile: 'meteor.png', type: 'spell', spellType: 'area_dmg', rarity: 'Rare', mana: 7, damage: 448, area: 2.8, emoji: '☄️', desc: 'Маг. урон 448 по области 2.8 клетки' },
+  { id: 'rage', name: 'Rage', iconFile: 'rage.png', type: 'spell', spellType: 'rage', rarity: 'Rare', mana: 3, bonusDmg: 1.0, bonusSpd: 0.70, duration: 6.0, durationScale: 1.038, emoji: '💢', desc: '+100% урона, +70% скорости на 6с (линия)' },
+  { id: 'lightning', name: 'Lightning', iconFile: 'light.png', type: 'spell', spellType: 'lightning', rarity: 'Rare', mana: 6, damage: 908, emoji: '⚡', desc: '908 маг. урона по ближайшей цели (не бьёт замок)' },
+  { id: 'fire', name: 'Fire', iconFile: 'fire.png', type: 'spell', spellType: 'lane_dmg', rarity: 'Rare', mana: 6, damage: 224, emoji: '🔥', desc: '224 маг. урона по всей выбранной линии' },
+  { id: 'blizzard', name: 'Blizzard', iconFile: 'blizz.png', type: 'spell', spellType: 'blizzard', rarity: 'Rare', mana: 3, duration: 5.7, emoji: '❄️', desc: 'Замораживает всех врагов на линии на 5.7 сек' },
+  { id: 'extra_crystal', name: 'Extra Crystal', iconFile: 'extra.png', type: 'spell', spellType: 'crystal', rarity: 'Rare', mana: 1, castleHpBonus: 318, manaGain: 2, emoji: '💎', desc: '+2 маны сразу и +318 HP замку' },
+  { id: 'wind', name: 'Wind', iconFile: 'wind.png', type: 'spell', spellType: 'wind', rarity: 'Rare', mana: 1, emoji: '🌪️', desc: 'Сдувает ВСЕХ юнитов на линии обратно к их замкам' },
+  { id: 'protection', name: 'Protection', iconFile: 'protection.png', type: 'spell', spellType: 'protection', rarity: 'Epic', mana: 3, shieldHp: 161, emoji: '🛡️', desc: 'Зелёный барьер (161 HP) для всех союзников на линии' },
+  { id: 'mud_elemental', name: 'Mud Elemental', iconFile: 'mud.png', type: 'unit', rarity: 'Rare', mana: 8, hp: 1089, damage: 339, speed: 0.72, range: 1.2, count: 1, emoji: '💩', desc: 'Чем меньше HP, тем ниже его урон' },
+  { id: 'spectre', name: 'Spectre', iconFile: 'spectre.png', type: 'unit', rarity: 'Epic', mana: 6, hp: 443, damage: 65, speed: 0.72, range: 1.2, count: 1, bonusDmgSoul: 26, bonusHpSoul: 26, emoji: '👻', desc: 'Поглощает души союзников (+26 урона и +26 HP за каждого)' },
+  { id: 'skull_king', name: 'Skull King', iconFile: 'boss.png', type: 'unit', rarity: 'Epic', mana: 10, hp: 999, damage: 114, speed: 0.72, range: 1.2, count: 1, spawnSkelPerLane: 4, emoji: '👑', desc: 'Призывает по 4 скелета на КАЖДУЮ из 3 линий!' },
+  { id: 'cannon_shot', name: 'Cannon Shot', iconFile: 'cannon.png', type: 'spell', spellType: 'cannon', rarity: 'Common', mana: 2, castleDamage: 391, emoji: '💣', desc: 'Выстрел из пушки: 391 урона исключительно вражескому замку' }
+];
+
+// ================= СОХРАНЕНИЕ (localStorage) =================
+const STORAGE_KEY = 'castle_crush_online_save_v1';
+const DEFAULT_PROGRESS = {
+  nick: 'Player_' + Math.floor(100 + Math.random() * 900),
+  castleLevel: 1,
+  cardLevels: {},
+  deck: [
+    'warrior', 'archers', 'skeletons', 'stone', 'dwarf', 'heal', 'growth',
+    'meteor', 'rage', 'lightning', 'blizzard', 'protection', 'mud_elemental', 'spectre'
+  ]
+};
+CARDS_DB.forEach(c => DEFAULT_PROGRESS.cardLevels[c.id] = 1);
+
+let playerProgress = loadProgress();
+
+function loadProgress() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        nick: parsed.nick || DEFAULT_PROGRESS.nick,
+        castleLevel: Math.max(1, Number(parsed.castleLevel) || 1),
+        cardLevels: { ...DEFAULT_PROGRESS.cardLevels, ...(parsed.cardLevels || {}) },
+        deck: Array.isArray(parsed.deck) ? parsed.deck.filter(id => CARDS_DB.some(c => c.id === id)) : [...DEFAULT_PROGRESS.deck]
+      };
+    }
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_PROGRESS));
+}
+
+function saveProgress() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(playerProgress)); } catch (e) {}
+}
+
+function saveNick() {
+  const val = document.getElementById('player-nick').value.trim();
+  if (val) { playerProgress.nick = val; saveProgress(); }
+}
+
+function resetProgress() {
+  if (!confirm('Сбросить прогресс и колоду?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  playerProgress = JSON.parse(JSON.stringify(DEFAULT_PROGRESS));
+  renderDeckBuilder();
+}
+
+function getStat(baseVal, level) {
+  return Math.round(baseVal * Math.pow(LEVEL_MULTIPLIER, level - 1));
+}
+
+function getCardScaledStats(cardId, level) {
+  const c = CARDS_DB.find(x => x.id === cardId);
+  if (!c) return null;
+  const lvl = level || playerProgress.cardLevels[cardId] || 1;
+  const res = { ...c, level: lvl };
+  if (c.hp) res.hp = getStat(c.hp, lvl);
+  if (c.damage) res.damage = getStat(c.damage, lvl);
+  if (c.castleHpBonus) res.castleHpBonus = getStat(c.castleHpBonus, lvl);
+  if (c.shieldHp) res.shieldHp = getStat(c.shieldHp, lvl);
+  if (c.castleDamage) res.castleDamage = getStat(c.castleDamage, lvl);
+  if (c.bonusDmgSoul) res.bonusDmgSoul = getStat(c.bonusDmgSoul, lvl);
+  if (c.bonusHpSoul) res.bonusHpSoul = getStat(c.bonusHpSoul, lvl);
+  if (c.duration && c.durationScale) {
+    res.duration = +(c.duration * Math.pow(c.durationScale, lvl - 1)).toFixed(2);
+  }
+  return res;
+}
+
+// ================= ИНТЕРФЕЙС КОЛОДЫ =================
+function switchScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function upgradeCastle() {
+  playerProgress.castleLevel++;
+  saveProgress();
+  renderDeckBuilder();
+}
+
+function upgradeCard(id) {
+  playerProgress.cardLevels[id]++;
+  saveProgress();
+  renderDeckBuilder();
+}
+
+function toggleDeckCard(id) {
+  const idx = playerProgress.deck.indexOf(id);
+  if (idx !== -1) {
+    playerProgress.deck.splice(idx, 1);
+  } else {
+    if (playerProgress.deck.length >= 14) {
+      alert('В колоде уже максимум 14 карт!');
+      return;
+    }
+    playerProgress.deck.push(id);
+  }
+  saveProgress();
+  renderDeckBuilder();
+}
+
+function renderDeckBuilder() {
+  document.getElementById('player-nick').value = playerProgress.nick;
+  document.getElementById('castle-lvl-display').textContent = playerProgress.castleLevel;
+  document.getElementById('deck-count').textContent = playerProgress.deck.length;
+  document.getElementById('deck-count-hdr').textContent = playerProgress.deck.length;
+
+  const deckGrid = document.getElementById('deck-grid');
+  const colGrid = document.getElementById('collection-grid');
+  deckGrid.innerHTML = '';
+  colGrid.innerHTML = '';
+
+  const createCardEl = (cardId) => {
+    const st = getCardScaledStats(cardId);
+    const isSelected = playerProgress.deck.includes(cardId);
+    const el = document.createElement('div');
+    el.className = `card-item rarity-${st.rarity} ${isSelected ? 'in-deck' : ''}`;
+
+    let statsHtml = '';
+    if (st.type === 'unit') {
+      statsHtml = `❤️ HP: <b>${st.hp}</b> | ⚔️ Урон: <b>${st.damage}</b><br>👟 Скор: ${st.speed} | 🎯 Дал: ${st.range}`;
+      if (st.count > 1) statsHtml += ` | 👥 x${st.count}`;
+    } else {
+      if (st.damage) statsHtml += `💥 Урон: <b>${st.damage}</b><br>`;
+      if (st.castleDamage) statsHtml += `🏰 Урон замку: <b>${st.castleDamage}</b><br>`;
+      if (st.shieldHp) statsHtml += `🛡️ Щит: <b>${st.shieldHp} HP</b><br>`;
+      if (st.castleHpBonus) statsHtml += `🏰 +${st.castleHpBonus} HP | +2 маны<br>`;
+      if (st.duration) statsHtml += `⏱️ Длит: <b>${st.duration}с</b><br>`;
+    }
+
+    el.innerHTML = `
+      <div>
+        <div class="card-top">
+          <span class="card-mana">💧 ${st.mana}</span>
+          <span class="card-lvl">Ур. ${st.level}</span>
+        </div>
+        ${getCardArtHtml(st, 'card-art-wrap')}
+        <div class="card-name">${st.name}</div>
+        <div class="card-stats">${statsHtml}<div style="margin-top:4px; color:#94a3b8; font-size:10px;">${st.desc}</div></div>
+      </div>
+      <div class="card-actions">
+        ${!st.noLevelScale ? `<button class="gray" onclick="upgradeCard('${st.id}')">⬆️ Ур.</button>` : ''}
+        <button class="${isSelected ? 'gray' : 'green'}" onclick="toggleDeckCard('${st.id}')">
+          ${isSelected ? 'Убрать' : 'В колоду'}
+        </button>
+      </div>
+    `;
+    return el;
+  };
+
+  playerProgress.deck.forEach(id => deckGrid.appendChild(createCardEl(id)));
+  CARDS_DB.forEach(c => colGrid.appendChild(createCardEl(c.id)));
+}
+
+// ================= РЕЖИМЫ БОЯ (ОНЛАЙН PvP И ОФЛАЙН БОТ) =================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const FIELD_TILES = 16;
+const LEFT_CASTLE_X = 95;
+const RIGHT_CASTLE_X = 1105;
+const TILE_PX = (RIGHT_CASTLE_X - LEFT_CASTLE_X) / FIELD_TILES;
+const LANE_CENTERS_Y = [95, 225, 355];
+
+let battle = {
+  active: false,
+  mode: 'online', // 'online' | 'bot'
+  role: 'p1',     // 'p1' | 'p2'
+  playerHP: 2000,
+  playerMaxHP: 2000,
+  enemyHP: 2000,
+  enemyMaxHP: 2000,
+  mana: 4.0,
+  enemyMana: 4.0,
+  hand: [],
+  drawPile: [],
+  selectedHandIdx: 0,
+  units: [],
+  effects: [],
+  cannonSprites: [],
+  enemyAiTimer: 2.5,
+  lastTime: 0,
+  hoverTileX: -1,
+  hoverLane: -1
+};
+
+function findOnlineMatch() {
+  if (playerProgress.deck.length !== 14) {
+    alert(`В колоде должно быть ровно 14 карт! Сейчас: ${playerProgress.deck.length}`);
+    return;
+  }
+  saveNick();
+  document.getElementById('search-overlay').classList.add('active');
+  socket.emit('find_match', {
+    name: playerProgress.nick,
+    castleLevel: playerProgress.castleLevel,
+    cardLevels: playerProgress.cardLevels,
+    deck: playerProgress.deck
+  });
+}
+
+function cancelSearch() {
+  document.getElementById('search-overlay').classList.remove('active');
+  socket.emit('cancel_search');
+}
+
+socket.on('match_found', data => {
+  document.getElementById('search-overlay').classList.remove('active');
+  switchScreen('battle-screen');
+
+  battle.active = true;
+  battle.mode = 'online';
+  battle.role = data.role;
+  battle.hand = data.hand;
+  battle.selectedHandIdx = 0;
+  battle.units = [];
+  battle.effects = [];
+  battle.cannonSprites = [];
+
+  document.getElementById('b-p-name').textContent = data.yourName;
+  document.getElementById('b-p-lvl').textContent = data.yourCastleLvl;
+  document.getElementById('b-e-name').textContent = data.enemyName;
+  document.getElementById('b-e-lvl').textContent = data.enemyCastleLvl;
+  document.getElementById('battle-status').textContent = `Бой против ${data.enemyName}!`;
+
+  renderBattleHand();
+  requestAnimationFrame(onlineRenderLoop);
+});
+
+socket.on('hand_update', newHand => {
+  battle.hand = newHand;
+  renderBattleHand();
+});
+
+socket.on('state_update', state => {
+  if (!battle.active || battle.mode !== 'online') return;
+  const isP1 = battle.role === 'p1';
+  const myState = isP1 ? state.p1 : state.p2;
+  const enState = isP1 ? state.p2 : state.p1;
+
+  const prevManaFloor = Math.floor(battle.mana);
+  battle.playerHP = myState.hp;
+  battle.playerMaxHP = myState.maxHp;
+  battle.enemyHP = enState.hp;
+  battle.enemyMaxHP = enState.maxHp;
+  battle.mana = myState.mana;
+
+  document.getElementById('b-mana').textContent = battle.mana.toFixed(1);
+  document.getElementById('b-mana-fill').style.width = `${(battle.mana / 10) * 100}%`;
+  if (Math.floor(battle.mana) !== prevManaFloor) renderBattleHand();
+  updateBattleHUD();
+
+  // Нормализуем координаты для клиента так, чтобы свой замок ВСЕГДА был слева (0 -> 16)
+  battle.units = state.units.map(u => ({
+    ...u,
+    isEnemyView: u.side !== battle.role,
+    viewTileX: isP1 ? u.tileX : (16 - u.tileX)
+  }));
+
+  battle.effects = state.effects.map(ef => ({
+    ...ef,
+    viewTileX: isP1 ? ef.tileX : (16 - ef.tileX)
+  }));
+
+  battle.cannonSprites = state.cannonSprites.map(cs => ({
+    isEnemyView: cs.side !== battle.role
+  }));
+});
+
+socket.on('game_over', ({ winner, reason }) => {
+  if (!battle.active) return;
+  battle.active = false;
+  const win = winner === battle.role;
+  const msg = win
+    ? (reason === 'disconnect' ? '🎉 ПОБЕДА! Противник отключился.' : '🎉 ПОБЕДА! Замок противника разрушен!')
+    : '💀 ПОРАЖЕНИЕ! Ваш замок пал.';
+  document.getElementById('battle-status').textContent = msg;
+  setTimeout(() => alert(msg), 100);
+});
+
+function onlineRenderLoop() {
+  if (!battle.active || battle.mode !== 'online') return;
+  renderBattlefield();
+  requestAnimationFrame(onlineRenderLoop);
+}
+
+// ================= ТРЕНИРОВОЧНЫЙ БОЙ С БОТОМ (ПРОТИВНИК 1 УР.) =================
+function startBotBattle() {
+  if (playerProgress.deck.length !== 14) {
+    alert(`В колоде должно быть ровно 14 карт! Сейчас: ${playerProgress.deck.length}`);
+    return;
+  }
+  switchScreen('battle-screen');
+  const pHp = getStat(2000, playerProgress.castleLevel);
+  const eHp = getStat(2000, 1);
+
+  document.getElementById('b-p-name').textContent = playerProgress.nick;
+  document.getElementById('b-p-lvl').textContent = playerProgress.castleLevel;
+  document.getElementById('b-e-name').textContent = 'Бот';
+  document.getElementById('b-e-lvl').textContent = 1;
+  document.getElementById('battle-status').textContent = 'Тренировка против Бота (1 ур.)';
+
+  battle.active = true;
+  battle.mode = 'bot';
+  battle.role = 'player';
+  battle.playerHP = pHp;
+  battle.playerMaxHP = pHp;
+  battle.enemyHP = eHp;
+  battle.enemyMaxHP = eHp;
+  battle.mana = 4.0;
+  battle.enemyMana = 4.0;
+  battle.units = [];
+  battle.effects = [];
+  battle.cannonSprites = [];
+  battle.enemyAiTimer = 2.0;
+
+  const shuffled = [...playerProgress.deck].sort(() => Math.random() - 0.5);
+  battle.hand = shuffled.slice(0, 4);
+  battle.drawPile = shuffled.slice(4);
+  battle.selectedHandIdx = 0;
+
+  updateBattleHUD();
+  renderBattleHand();
+  battle.lastTime = performance.now();
+  requestAnimationFrame(botGameLoop);
+}
+
+function leaveBattle() {
+  if (battle.active && battle.mode === 'online') {
+    socket.emit('surrender');
+  }
+  battle.active = false;
+  switchScreen('deck-screen');
+}
+
+function updateBattleHUD() {
+  document.getElementById('b-p-hp').textContent = Math.max(0, Math.round(battle.playerHP));
+  document.getElementById('b-p-maxhp').textContent = Math.round(battle.playerMaxHP);
+  document.getElementById('b-e-hp').textContent = Math.max(0, Math.round(battle.enemyHP));
+  document.getElementById('b-e-maxhp').textContent = Math.round(battle.enemyMaxHP);
+}
+
+function renderBattleHand() {
+  const container = document.getElementById('battle-hand');
+  container.innerHTML = '';
+  battle.hand.forEach((cardId, idx) => {
+    const st = getCardScaledStats(cardId);
+    const canAfford = battle.mana >= st.mana;
+    const el = document.createElement('div');
+    el.className = `hand-card rarity-${st.rarity} ${battle.selectedHandIdx === idx ? 'selected' : ''} ${!canAfford ? 'disabled' : ''}`;
+    el.onclick = () => {
+      battle.selectedHandIdx = idx;
+      renderBattleHand();
+    };
+    el.innerHTML = `
+      <div class="hand-card-cost">💧 ${st.mana}</div>
+      ${getCardArtHtml(st, 'hand-card-art')}
+      <div class="hand-card-name">${st.name}</div>
+      <div class="hand-card-lvl">Ур. ${st.level}</div>
+    `;
+    container.appendChild(el);
+  });
+}
+
+// ================= КЛИКИ ПО ПОЛЮ =================
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  battle.hoverLane = y < 150 ? 0 : (y < 300 ? 1 : 2);
+  battle.hoverTileX = (x - LEFT_CASTLE_X) / TILE_PX;
+});
+canvas.addEventListener('mouseleave', () => { battle.hoverLane = -1; });
+
+canvas.addEventListener('click', e => {
+  if (!battle.active) return;
+  const cardId = battle.hand[battle.selectedHandIdx];
+  const st = getCardScaledStats(cardId);
+  if (!st || battle.mana < st.mana) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const lane = clickY < 150 ? 0 : (clickY < 300 ? 1 : 2);
+  const tileX = (clickX - LEFT_CASTLE_X) / TILE_PX;
+
+  if (battle.mode === 'online') {
+    socket.emit('play_card', { handIdx: battle.selectedHandIdx, lane, tileX });
+  } else {
+    if (botPlayCard(cardId, 'player', lane, tileX)) {
+      battle.mana -= st.mana;
+      battle.drawPile.push(cardId);
+      battle.hand[battle.selectedHandIdx] = battle.drawPile.shift();
+      renderBattleHand();
+    }
+  }
+});
+
+// ================= ЛОГИКА ОФЛАЙН БОТА =================
+function botPlayCard(cardId, side, lane, tileX, lvlOverride = null) {
+  const st = getCardScaledStats(cardId, lvlOverride);
+  if (!st) return false;
+  const enemySide = side === 'player' ? 'enemy' : 'player';
+
+  if (st.type === 'unit') {
+    if (!st.canSpawnAnywhere) {
+      tileX = side === 'player' ? Math.max(0.3, Math.min(7.8, tileX)) : Math.max(8.2, Math.min(15.7, tileX));
+    } else {
+      tileX = Math.max(0.5, Math.min(15.5, tileX));
+    }
+    const count = st.count || 1;
+    for (let i = 0; i < count; i++) {
+      const spreadX = count > 1 ? (i - (count - 1) / 2) * 0.45 : 0;
+      const spreadY = count > 1 ? ((i % 2 === 0 ? -1 : 1) * 14) : 0;
+      const tx = Math.max(0.2, Math.min(15.8, tileX + spreadX));
+      battle.units.push({
+        uid: Math.random().toString(36).slice(2), id: st.id, side, isEnemyView: side === 'enemy',
+        lane, viewTileX: tx, offsetY: spreadY, hp: st.hp, maxHp: st.hp, baseDamage: st.damage,
+        speed: st.speed, range: st.range, scale: 1.0, shieldHp: 0, shieldMaxHp: 0,
+        freezeTimer: 0, rageTimer: 0, rageDmgBonus: 0, rageSpdBonus: 0, attackCooldown: 0,
+        animState: 'deploy', animTimer: 0, deployTimer: st.id === 'spectre' ? 0.65 : 0
+      });
+    }
+    if (st.spawnSkelPerLane) {
+      const sk = getCardScaledStats('skeletons', st.level);
+      for (let l = 0; l < 3; l++) {
+        for (let k = 0; k < st.spawnSkelPerLane; k++) {
+          const baseTx = side === 'player' ? 1.2 : 14.8;
+          const sx = baseTx + (side === 'player' ? 1 : -1) * (k * 0.45);
+          battle.units.push({
+            uid: Math.random().toString(36).slice(2), id: 'skeletons', side, isEnemyView: side === 'enemy',
+            lane: l, viewTileX: sx, offsetY: (k % 2 === 0 ? -16 : 16), hp: sk.hp, maxHp: sk.hp,
+            baseDamage: sk.damage, speed: sk.speed, range: sk.range, scale: 1.0, shieldHp: 0, shieldMaxHp: 0,
+            freezeTimer: 0, rageTimer: 0, rageDmgBonus: 0, rageSpdBonus: 0, attackCooldown: 0,
+            animState: 'walk', animTimer: 0, deployTimer: 0
+          });
+        }
+      }
+    }
+    return true;
+  }
+
+  if (st.type === 'spell') {
+    const addEf = (type, l, tx, rTiles, col) => battle.effects.push({ type, lane: l, viewTileX: tx, radiusTiles: rTiles, color: col, timer: 0.45, maxTimer: 0.45 });
+    const dmgU = (u, amt) => {
+      if (u.shieldHp > 0) {
+        if (u.shieldHp >= amt) { u.shieldHp -= amt; return; }
+        amt -= u.shieldHp; u.shieldHp = 0; u.shieldMaxHp = 0;
+      }
+      u.hp -= amt;
+    };
+
+    if (st.spellType === 'area_dmg') {
+      const half = st.area / 2;
+      addEf('explosion', lane, tileX, half, st.id === 'meteor' ? '#f97316' : '#ef4444');
+      battle.units.forEach(u => { if (u.side === enemySide && u.lane === lane && Math.abs(u.viewTileX - tileX) <= half) dmgU(u, st.damage); });
+      if (side === 'player' && (16 - tileX) <= half) battle.enemyHP -= st.damage;
+      if (side === 'enemy' && tileX <= half) battle.playerHP -= st.damage;
+    } else if (st.spellType === 'lane_dmg') {
+      addEf('lane_flash', lane, 8, 0, 'rgba(239,68,68,0.35)');
+      battle.units.forEach(u => { if (u.side === enemySide && u.lane === lane) dmgU(u, st.damage); });
+      if (side === 'player') battle.enemyHP -= st.damage; else battle.playerHP -= st.damage;
+    } else if (st.spellType === 'heal') {
+      addEf('lane_flash', lane, 8, 0, 'rgba(74,222,128,0.3)');
+      battle.units.forEach(u => { if (u.side === side && u.lane === lane && u.hp > 0) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * st.healPct); });
+    } else if (st.spellType === 'growth') {
+      const allies = battle.units.filter(u => u.side === side && u.lane === lane && u.hp > 0);
+      if (!allies.length) return false;
+      allies.sort((a, b) => b.maxHp - a.maxHp);
+      const t = allies[0];
+      t.maxHp = Math.round(t.maxHp * (1 + st.bonusPct)); t.hp = Math.round(t.hp * (1 + st.bonusPct));
+      t.baseDamage = Math.round(t.baseDamage * (1 + st.bonusPct)); t.scale *= st.scaleInc;
+      addEf('explosion', lane, t.viewTileX, 0.7, '#22c55e');
+    } else if (st.spellType === 'rage') {
+      addEf('lane_flash', lane, 8, 0, 'rgba(168,85,247,0.3)');
+      battle.units.forEach(u => { if (u.side === side && u.lane === lane && u.hp > 0) { u.rageTimer = st.duration; u.rageDmgBonus = st.bonusDmg; u.rageSpdBonus = st.bonusSpd; } });
+    } else if (st.spellType === 'lightning') {
+      const ens = battle.units.filter(u => u.side === enemySide && u.lane === lane && u.hp > 0);
+      if (!ens.length) return false;
+      ens.sort((a, b) => Math.abs(a.viewTileX - tileX) - Math.abs(b.viewTileX - tileX));
+      dmgU(ens[0], st.damage); addEf('lightning', lane, ens[0].viewTileX, 0.5, '#38bdf8');
+    } else if (st.spellType === 'blizzard') {
+      addEf('lane_flash', lane, 8, 0, 'rgba(56,189,248,0.35)');
+      battle.units.forEach(u => { if (u.side === enemySide && u.lane === lane && u.hp > 0) u.freezeTimer = st.duration; });
+    } else if (st.spellType === 'crystal') {
+      if (side === 'player') { battle.mana = Math.min(10, battle.mana + st.manaGain); battle.playerMaxHP += st.castleHpBonus; battle.playerHP += st.castleHpBonus; }
+      else { battle.enemyMana = Math.min(10, battle.enemyMana + st.manaGain); battle.enemyMaxHP += st.castleHpBonus; battle.enemyHP += st.castleHpBonus; }
+      addEf('explosion', 1, side === 'player' ? 0.5 : 15.5, 0.8, '#38bdf8');
+    } else if (st.spellType === 'wind') {
+      addEf('lane_flash', lane, 8, 0, 'rgba(226,232,240,0.35)');
+      battle.units.forEach(u => { if (u.lane === lane && u.hp > 0) u.viewTileX = u.side === 'player' ? 0.4 : 15.6; });
+    } else if (st.spellType === 'protection') {
+      addEf('lane_flash', lane, 8, 0, 'rgba(34,197,94,0.25)');
+      battle.units.forEach(u => { if (u.side === side && u.lane === lane && u.hp > 0) { u.shieldHp = st.shieldHp; u.shieldMaxHp = st.shieldHp; } });
+    } else if (st.spellType === 'cannon') {
+      if (side === 'player') battle.enemyHP -= st.castleDamage; else battle.playerHP -= st.castleDamage;
+      battle.cannonSprites.push({ isEnemyView: side === 'enemy', timer: 1.2 });
+      addEf('explosion', 1, side === 'player' ? 15.8 : 0.2, 0.9, '#f59e0b');
+    }
+    updateBattleHUD();
+    return true;
+  }
+  return false;
+}
+
+function botGameLoop(now) {
+  if (!battle.active || battle.mode !== 'bot') return;
+  const dt = Math.min(0.05, (now - battle.lastTime) / 1000);
+  battle.lastTime = now;
+
+  const prevFloor = Math.floor(battle.mana);
+  battle.mana = Math.min(10, battle.mana + dt * 0.72);
+  battle.enemyMana = Math.min(10, battle.enemyMana + dt * 0.72);
+  document.getElementById('b-mana').textContent = battle.mana.toFixed(1);
+  document.getElementById('b-mana-fill').style.width = `${(battle.mana / 10) * 100}%`;
+  if (Math.floor(battle.mana) !== prevFloor) renderBattleHand();
+
+  battle.enemyAiTimer -= dt;
+  if (battle.enemyAiTimer <= 0) {
+    battle.enemyAiTimer = 2.2 + Math.random() * 1.5;
+    const aff = CARDS_DB.filter(c => c.mana <= battle.enemyMana && c.id !== 'growth' && c.id !== 'lightning');
+    if (aff.length) {
+      const pick = aff[Math.floor(Math.random() * aff.length)];
+      const lane = Math.floor(Math.random() * 3);
+      const tx = pick.canSpawnAnywhere ? (4 + Math.random() * 8) : (12 + Math.random() * 3.5);
+      if (botPlayCard(pick.id, 'enemy', lane, tx, 1)) battle.enemyMana -= pick.mana;
+    }
+  }
+
+  battle.effects.forEach(ef => ef.timer -= dt);
+  battle.effects = battle.effects.filter(ef => ef.timer > 0);
+  battle.cannonSprites.forEach(cs => cs.timer -= dt);
+  battle.cannonSprites = battle.cannonSprites.filter(cs => cs.timer > 0);
+
+  for (let u of battle.units) {
+    if (u.hp <= 0) continue;
+    if (u.deployTimer > 0) { u.deployTimer -= dt; u.animState = 'deploy'; u.animTimer += dt; continue; }
+    if (u.freezeTimer > 0) { u.freezeTimer -= dt; continue; }
+    if (u.rageTimer > 0) u.rageTimer -= dt; else { u.rageDmgBonus = 0; u.rageSpdBonus = 0; }
+
+    const dir = u.side === 'player' ? 1 : -1;
+    const enemySide = u.side === 'player' ? 'enemy' : 'player';
+    let dmg = u.id === 'mud_elemental' ? Math.round(u.baseDamage * Math.max(0.15, u.hp / u.maxHp)) : u.baseDamage;
+    dmg = Math.round(dmg * (1 + u.rageDmgBonus));
+
+    let target = null, minD = Infinity;
+    for (let o of battle.units) {
+      if (o.side === enemySide && o.lane === u.lane && o.hp > 0) {
+        const d = (o.viewTileX - u.viewTileX) * dir;
+        if (d >= -0.3 && d < minD) { minD = d; target = o; }
+      }
+    }
+    const dCastle = u.side === 'player' ? (16 - u.viewTileX) : u.viewTileX;
+
+    if (u.baseDamage > 0 && u.range > 0) {
+      if (target && minD <= u.range) {
+        u.animState = 'attack'; u.animTimer += dt; u.attackCooldown -= dt;
+        if (u.attackCooldown <= 0) {
+          u.attackCooldown = 1.0;
+          let amt = dmg;
+          if (target.shieldHp > 0) {
+            if (target.shieldHp >= amt) { target.shieldHp -= amt; amt = 0; }
+            else { amt -= target.shieldHp; target.shieldHp = 0; target.shieldMaxHp = 0; }
+          }
+          target.hp -= amt;
+        }
+        continue;
+      } else if (dCastle <= u.range) {
+        u.animState = 'attack'; u.animTimer += dt; u.attackCooldown -= dt;
+        if (u.attackCooldown <= 0) {
+          u.attackCooldown = 1.0;
+          if (u.side === 'player') battle.enemyHP -= dmg; else battle.playerHP -= dmg;
+          updateBattleHUD();
+        }
+        continue;
+      }
+    }
+    if (u.speed > 0) {
+      u.animState = 'walk'; u.animTimer += dt;
+      u.viewTileX = Math.max(0, Math.min(16, u.viewTileX + dir * u.speed * (1 + u.rageSpdBonus) * dt));
+    }
+  }
+
+  const dead = battle.units.filter(u => u.hp <= 0);
+  if (dead.length) {
+    dead.forEach(d => {
+      battle.units.forEach(a => {
+        if (a.hp > 0 && a.id === 'spectre' && a.side === d.side && a.uid !== d.uid) {
+          const st = getCardScaledStats('spectre', a.side === 'player' ? playerProgress.cardLevels['spectre'] : 1);
+          a.baseDamage += st.bonusDmgSoul; a.maxHp += st.bonusHpSoul; a.hp += st.bonusHpSoul;
+          a.scale = Math.min(1.8, a.scale + 0.04);
+        }
+      });
+    });
+    battle.units = battle.units.filter(u => u.hp > 0);
+  }
+
+  renderBattlefield();
+
+  if (battle.playerHP <= 0 || battle.enemyHP <= 0) {
+    battle.active = false;
+    const win = battle.enemyHP <= 0;
+    document.getElementById('battle-status').textContent = win ? '🎉 ПОБЕДА!' : '💀 ПОРАЖЕНИЕ!';
+    setTimeout(() => alert(win ? 'Победа!' : 'Поражение!'), 100);
+    return;
+  }
+  requestAnimationFrame(botGameLoop);
+}
+
+// ================= ОТРИСОВКА CANVAS =================
+const EMOJI_MAP = {};
+CARDS_DB.forEach(c => EMOJI_MAP[c.id] = c.emoji);
+
+function renderBattlefield() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (let l = 0; l < 3; l++) {
+    ctx.fillStyle = l % 2 === 0 ? '#1e293b' : '#172033';
+    ctx.fillRect(0, l * 150, canvas.width, 150);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, l * 150, canvas.width, 150);
+  }
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+  ctx.setLineDash([8, 8]);
+  ctx.beginPath();
+  ctx.moveTo(LEFT_CASTLE_X + 8 * TILE_PX, 0);
+  ctx.lineTo(LEFT_CASTLE_X + 8 * TILE_PX, canvas.height);
+  ctx.stroke();
+  ctx.restore();
+
+  if (battle.hoverLane >= 0 && battle.hand[battle.selectedHandIdx]) {
+    const st = getCardScaledStats(battle.hand[battle.selectedHandIdx]);
+    if (st) {
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+      ctx.fillRect(0, battle.hoverLane * 150, canvas.width, 150);
+      if (st.area) {
+        const hx = LEFT_CASTLE_X + battle.hoverTileX * TILE_PX;
+        const hy = LANE_CENTERS_Y[battle.hoverLane];
+        ctx.beginPath();
+        ctx.arc(hx, hy, (st.area / 2) * TILE_PX, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+  }
+
+  ctx.font = '72px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏰', 48, 225);
+  ctx.fillText('🏰', 1152, 225);
+
+  battle.cannonSprites.forEach(cs => {
+    const cx = !cs.isEnemyView ? 115 : 1085;
+    const cy = 225;
+    if (ASSETS.cannon) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (cs.isEnemyView) ctx.scale(-1, 1);
+      ctx.drawImage(ASSETS.cannon, -55, -55, 110, 110);
+      ctx.restore();
+    } else {
+      ctx.font = '46px serif';
+      ctx.fillText('💣', cx, cy);
+    }
+  });
+
+  const sortedUnits = [...battle.units].sort((a, b) => (LANE_CENTERS_Y[a.lane] + a.offsetY) - (LANE_CENTERS_Y[b.lane] + b.offsetY));
+
+  for (let u of sortedUnits) {
+    const px = LEFT_CASTLE_X + u.viewTileX * TILE_PX;
+    const py = LANE_CENTERS_Y[u.lane] + u.offsetY;
+    const isEnemy = u.isEnemyView;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(px, py + 24 * u.scale, 20 * u.scale, 7 * u.scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (u.rageTimer > 0) {
+      ctx.strokeStyle = '#a855f7';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(px, py, 28 * u.scale, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    let drewCustom = false;
+    if (u.id === 'mud_elemental' && ASSETS.mudAnim.loaded) {
+      drewCustom = ASSETS.mudAnim.draw(ctx, u.animState, Math.floor(u.animTimer * 18), px, py + 15, 0.44 * u.scale, isEnemy);
+    } else if (u.id === 'spectre' && ASSETS.spectreAnim.loaded) {
+      drewCustom = ASSETS.spectreAnim.draw(ctx, u.animState, Math.floor(u.animTimer * 18), px, py + 15, 0.44 * u.scale, isEnemy);
+    } else if (u.id === 'stone' && ASSETS.scarecrow) {
+      ctx.save();
+      ctx.translate(px, py);
+      if (isEnemy) ctx.scale(-1, 1);
+      const sz = 68 * u.scale;
+      ctx.drawImage(ASSETS.scarecrow, -sz / 2, -sz / 2, sz, sz);
+      ctx.restore();
+      drewCustom = true;
+    }
+
+    if (!drewCustom) {
+      ctx.save();
+      ctx.translate(px, py);
+      if (isEnemy) ctx.scale(-1, 1);
+      ctx.font = `${Math.round(38 * u.scale)}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(EMOJI_MAP[u.id] || '👾', 0, 0);
+      ctx.restore();
+    }
+
+    if (u.freezeTimer > 0) {
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.beginPath();
+      ctx.arc(px, py, 24 * u.scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (u.shieldHp > 0) {
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(px, py, 27 * u.scale, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    const barW = 46;
+    const barH = 6;
+    const barY = py - 34 * u.scale;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px - barW / 2 - 1, barY - 1, barW + 2, barH + 2);
+
+    ctx.fillStyle = isEnemy ? '#ef4444' : '#3b82f6';
+    ctx.fillRect(px - barW / 2, barY, barW * Math.max(0, u.hp / u.maxHp), barH);
+
+    if (u.shieldHp > 0 && u.shieldMaxHp > 0) {
+      const sBarY = barY - 7;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(px - barW / 2 - 1, sBarY - 1, barW + 2, 5 + 2);
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(px - barW / 2, sBarY, barW * Math.max(0, u.shieldHp / u.shieldMaxHp), 5);
+    }
+  }
+
+  battle.effects.forEach(ef => {
+    const alpha = ef.timer / ef.maxTimer;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (ef.type === 'lane_flash') {
+      ctx.fillStyle = ef.color;
+      ctx.fillRect(0, ef.lane * 150, canvas.width, 150);
+    } else if (ef.type === 'explosion') {
+      const ex = LEFT_CASTLE_X + ef.viewTileX * TILE_PX;
+      const ey = LANE_CENTERS_Y[ef.lane];
+      const radPx = (ef.radiusTiles || 0.8) * TILE_PX;
+      ctx.fillStyle = ef.color;
+      ctx.beginPath();
+      ctx.arc(ex, ey, radPx * (1.2 - alpha * 0.4), 0, Math.PI * 2);
+      ctx.fill();
+    } else if (ef.type === 'lightning') {
+      const lx = LEFT_CASTLE_X + ef.viewTileX * TILE_PX;
+      const ly = LANE_CENTERS_Y[ef.lane];
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(lx - 15, 0);
+      ctx.lineTo(lx + 10, ly * 0.5);
+      ctx.lineTo(lx - 8, ly * 0.75);
+      ctx.lineTo(lx, ly);
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+renderDeckBuilder();
+</script>
+</body>
+</html>
